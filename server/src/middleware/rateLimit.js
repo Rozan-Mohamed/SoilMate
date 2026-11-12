@@ -7,6 +7,9 @@ export function createRateLimiter({ limit = 100, windowMs = 60 * 1000 } = {}) {
     limit,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
+    validate: {
+      forwardedHeader: false,
+    },
     handler: (req, res) => {
       res.status(429).json(errorBody('RATE_LIMITED', 'Too many requests. Please slow down.'));
     },

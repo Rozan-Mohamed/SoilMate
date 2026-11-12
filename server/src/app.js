@@ -50,6 +50,8 @@ const playerExceptHealth = (req, res, next) =>
 export function createApp({ apiRouter = defaultApiRouter, rateLimit } = {}) {
   const app = express();
 
+  app.set('trust proxy', 1);
+
   app.use(helmet());
   app.use(cors(corsOptions));
   app.use(httpLogger);
