@@ -1,0 +1,907 @@
+{
+  "meta": {
+    "name": "SoilMate Learn & Play: Frontend/Backend Contract",
+    "version": "1.1.0",
+    "purpose": "Single source of truth. If the frontend and backend disagree, this file wins. Change this file first, then change the code.",
+    "scope": "Learn & Play games only (5 games, hub, score screens, finale).",
+    "language": "All user-facing text is English.",
+    "stack": {
+      "frontend": "Next.js 16 (App Router) + React 19 + TypeScript + Tailwind v4",
+      "backend": "Node 20 + Express + MongoDB (Mongoose)"
+    }
+  },
+  "http": {
+    "baseUrlEnv": {
+      "frontend": "NEXT_PUBLIC_API_URL",
+      "default": "http://localhost:4000/api"
+    },
+    "prefix": "/api",
+    "contentType": "application/json",
+    "dateFormat": "ISO 8601 UTC string, for example 2026-10-31T12:00:00.000Z",
+    "idFormats": {
+      "playerId": "UUID v4 string",
+      "attemptId": "24-character hex string (Mongo ObjectId)",
+      "questionId": "24-character hex string (Mongo ObjectId)",
+      "questionKey": "string like g3-017 (g + game number + - + 3-digit number)",
+      "choiceKey": "short lowercase string, unique inside one question",
+      "iconKey": "kebab-case string, must exist in shared icon-keys.json"
+    },
+    "casing": "camelCase for every JSON field, request and response",
+    "nullRules": "Optional fields are omitted when empty, never sent as empty strings. A field that is documented as nullable is sent as null.",
+    "cors": {
+      "allowedOrigin": "CLIENT_ORIGIN env var",
+      "exposedHeaders": [
+        "X-Player-Id"
+      ],
+      "allowedHeaders": [
+        "Content-Type",
+        "X-Player-Id"
+      ],
+      "note": "CLIENT_ORIGIN is a single origin. Next dev server: http://localhost:3000."
+    },
+    "rateLimit": "100 requests per minute per IP, then 429 with the standard error shape",
+    "bodyLimit": "10kb",
+    "noCaching": "Attempt endpoints send Cache-Control: no-store"
+  },
+  "identity": {
+    "type": "anonymous, no login",
+    "requestHeader": "X-Player-Id",
+    "responseHeader": "X-Player-Id",
+    "frontendStorageKey": "soilmate.playerId",
+    "flow": [
+      "Frontend sends X-Player-Id if it has one.",
+      "If the header is missing or not a valid UUID v4, backend creates a player and returns the new id in the X-Player-Id response header.",
+      "Frontend saves the returned id to localStorage and sends it on every later request.",
+      "Backend updates lastSeenAt on every request.",
+      "Any attempt route returns 403 FORBIDDEN if the attempt belongs to another player."
+    ]
+  },
+  "enums": {
+    "gameSlug": [
+      "match-the-word",
+      "satellite-or-ground",
+      "crop-superpowers",
+      "fix-the-field",
+      "weather-and-crops"
+    ],
+    "attemptStatus": [
+      "active",
+      "completed",
+      "failed",
+      "abandoned"
+    ],
+    "mascotOutfit": [
+      "none",
+      "cape",
+      "doctorCap",
+      "raincoat"
+    ],
+    "mascotMood": [
+      "neutral",
+      "happy",
+      "cheer",
+      "oops",
+      "flying",
+      "holdingTrophy"
+    ],
+    "choiceMode": [
+      "pool",
+      "fixedOrder",
+      "shuffle"
+    ],
+    "collectionKind": [
+      "terms",
+      "powerBadges",
+      "fieldTiles",
+      "weatherStickers",
+      "none"
+    ],
+    "g2AnswerGroup": [
+      "satellite",
+      "both",
+      "ground"
+    ],
+    "g3PowerGroup": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E",
+      "F",
+      "G",
+      "H"
+    ],
+    "questionPhaseFrontendOnly": [
+      "loading",
+      "playing",
+      "checking",
+      "feedbackCorrect",
+      "feedbackWrong",
+      "feedbackSkipped",
+      "completing",
+      "result",
+      "failed",
+      "error"
+    ],
+    "errorCode": [
+      "VALIDATION_ERROR",
+      "NOT_FOUND",
+      "ATTEMPT_NOT_ACTIVE",
+      "QUESTION_ALREADY_RESOLVED",
+      "QUESTION_NOT_IN_ATTEMPT",
+      "ATTEMPT_NOT_FINISHED",
+      "FORBIDDEN",
+      "RATE_LIMITED",
+      "INTERNAL"
+    ]
+  },
+  "rules": {
+    "heartsPerAttempt": 3,
+    "pointsPerFirstTryCorrect": 10,
+    "wrongAnswer": "Costs 1 heart, resets streak to 0, adds the choice to that question's wrongChoiceKeys. The same question stays open.",
+    "retryAfterWrong": "Frontend disables every choice listed in wrongChoiceKeys for that question.",
+    "zeroHearts": "Attempt status becomes failed. Every later answer, skip, or complete returns 409 ATTEMPT_NOT_ACTIVE.",
+    "streak": {
+      "definition": "Consecutive first-try correct answers",
+      "resetsOn": [
+        "wrong answer",
+        "skip"
+      ],
+      "chipVisibleFrom": 2
+    },
+    "skip": "Marks the question resolved and skipped. No heart lost, no points, streak resets to 0, correct answer revealed. A skipped question is never first-try correct and never earns its collection item.",
+    "score": "Number of questions with firstTryCorrect = true",
+    "stars": {
+      "outOf5": {
+        "5": 3,
+        "3-4": 2,
+        "1-2": 1,
+        "0": 0
+      },
+      "outOf6": {
+        "6": 3,
+        "4-5": 2,
+        "2-3": 1,
+        "0-1": 0
+      }
+    },
+    "gameBadgeEarnedWhen": "score >= 4 (in any game, including the 5-question game)",
+    "masterBadge": {
+      "name": "Soil Expert",
+      "iconKey": "badge-soil-expert",
+      "earnedWhen": "all 5 game badges are earned (best result per game counts)"
+    },
+    "bestResult": "Progress keeps the attempt with the highest points per game",
+    "attemptExpiry": "Active or abandoned attempts expire 7 days after start (Mongo TTL)",
+    "oneActiveAttemptPerGame": "Starting a new attempt abandons any active attempt for the same player and game",
+    "questionHistory": "Updated only when a question is resolved (correct or skipped). Abandoned rounds do not use up questions.",
+    "noRepeatsUntilAllSeen": "The picker prefers never-seen questions, then least-seen, then oldest-seen, with random tie-breaks",
+    "newQuestionsEveryRound": "Play Again always starts a new attempt with a freshly picked set"
+  },
+  "games": [
+    {
+      "position": 1,
+      "slug": "match-the-word",
+      "title": "Match the Word",
+      "questionsPerRound": 5,
+      "poolSize": 6,
+      "progressLabel": "n of 5",
+      "scoreRingText": "{score} / 5",
+      "choiceMode": "pool",
+      "choiceRule": "Correct meaning plus 2 meanings taken from other terms in the same pool. No duplicates. Shuffled once per attempt.",
+      "choicesPerQuestion": 3,
+      "mascotOutfit": "none",
+      "speechBubble": "What does this word mean?",
+      "correctBannerTitle": "Great job!",
+      "explanationTemplate": "{term} means: {meaning}.",
+      "hasSpeakerButton": true,
+      "collectionKind": "terms",
+      "collectionSize": 5,
+      "badge": {
+        "name": "Word Wizard",
+        "iconKey": "badge-word-wizard"
+      },
+      "result": {
+        "title": "Great job!",
+        "subtitle": null,
+        "scoreLine": "You matched {n} words",
+        "mascotMood": "holdingTrophy"
+      },
+      "nextGame": {
+        "slug": "satellite-or-ground",
+        "buttonLabel": "Next Game: Satellite or Ground?",
+        "buttonIconKey": "satellite"
+      }
+    },
+    {
+      "position": 2,
+      "slug": "satellite-or-ground",
+      "title": "Satellite or Ground?",
+      "questionsPerRound": 6,
+      "poolSize": 30,
+      "progressLabel": "n of 6",
+      "scoreRingText": "{score} / 6",
+      "choiceMode": "fixedOrder",
+      "choiceRule": "Always these three, always in this order. Never shuffled.",
+      "fixedChoices": [
+        {
+          "key": "satellite",
+          "label": "Satellite",
+          "iconKey": "choice-satellite"
+        },
+        {
+          "key": "both",
+          "label": "Both Together",
+          "iconKey": "choice-both-together"
+        },
+        {
+          "key": "ground",
+          "label": "On the Ground",
+          "iconKey": "choice-on-the-ground"
+        }
+      ],
+      "pickerRule": "2 questions from each answer group (satellite, both, ground) per round, then the 6 are shuffled.",
+      "mascotOutfit": "none",
+      "speechBubble": "Who can tell us this?",
+      "correctBannerTitle": "Great job!",
+      "collectionKind": "none",
+      "collectionSize": 0,
+      "badge": {
+        "name": "Data Detective",
+        "iconKey": "badge-data-detective"
+      },
+      "result": {
+        "title": "Great job!",
+        "bigMessage": "Together, we can do better",
+        "subtitle": "Satellite sees the big picture. You know the field.",
+        "scoreLine": "You answered {n} correctly",
+        "mascotMood": "happy",
+        "illustrationKey": "result-satellite-and-farmer",
+        "recapChips": [
+          {
+            "label": "Satellite: big areas",
+            "iconKey": "choice-satellite"
+          },
+          {
+            "label": "On the Ground: close details",
+            "iconKey": "choice-on-the-ground"
+          },
+          {
+            "label": "Both Together: most accurate",
+            "iconKey": "choice-both-together"
+          }
+        ]
+      },
+      "nextGame": {
+        "slug": "crop-superpowers",
+        "buttonLabel": "Next Game: Crop Superpowers",
+        "buttonIconKey": "power-superhero-leaf"
+      }
+    },
+    {
+      "position": 3,
+      "slug": "crop-superpowers",
+      "title": "Crop Superpowers",
+      "questionsPerRound": 6,
+      "poolSize": 30,
+      "progressLabel": "n of 6",
+      "scoreRingText": "{score} / 6",
+      "choiceMode": "shuffle",
+      "choicesPerQuestion": 3,
+      "pickerRule": "6 different powers chosen at random out of 8. For each power, the best-ranked crop. The 6 badges on the score screen are therefore always different.",
+      "mascotOutfit": "cape",
+      "speechBubble": "What is its main superpower?",
+      "correctBannerTitle": "Power unlocked!",
+      "explanationTemplate": "{crop}: {power}.",
+      "collectionKind": "powerBadges",
+      "collectionSize": 6,
+      "powers": [
+        {
+          "group": "A",
+          "label": "Adds nitrogen to the soil",
+          "badgeLabel": "Nitrogen",
+          "iconKey": "power-nitrogen"
+        },
+        {
+          "group": "B",
+          "label": "Protects soil from washing away",
+          "badgeLabel": "Protector",
+          "iconKey": "power-protector"
+        },
+        {
+          "group": "C",
+          "label": "Loosens hard soil",
+          "badgeLabel": "Deep Roots",
+          "iconKey": "power-deep-roots"
+        },
+        {
+          "group": "D",
+          "label": "Grows with less water",
+          "badgeLabel": "Low Water",
+          "iconKey": "power-low-water"
+        },
+        {
+          "group": "E",
+          "label": "Breaks pest and disease cycles",
+          "badgeLabel": "Pest Breaker",
+          "iconKey": "power-pest-breaker"
+        },
+        {
+          "group": "F",
+          "label": "Adds organic matter to the soil",
+          "badgeLabel": "Soil Booster",
+          "iconKey": "power-soil-booster"
+        },
+        {
+          "group": "G",
+          "label": "Feeds your animals",
+          "badgeLabel": "Animal Feed",
+          "iconKey": "power-animal-feed"
+        },
+        {
+          "group": "H",
+          "label": "Brings extra income",
+          "badgeLabel": "Extra Income",
+          "iconKey": "power-extra-income"
+        }
+      ],
+      "badge": {
+        "name": "Crop Hero",
+        "iconKey": "badge-crop-hero"
+      },
+      "result": {
+        "title": "Superpowers unlocked!",
+        "subtitle": "Your crops are real heroes",
+        "scoreLine": "You found {n} superpowers",
+        "mascotMood": "flying"
+      },
+      "nextGame": {
+        "slug": "fix-the-field",
+        "buttonLabel": "Next Game: Fix the Field",
+        "buttonIconKey": "magnifier-field"
+      }
+    },
+    {
+      "position": 4,
+      "slug": "fix-the-field",
+      "title": "Fix the Field",
+      "questionsPerRound": 6,
+      "poolSize": 30,
+      "progressLabel": "n of 6",
+      "scoreRingText": "{score} / 6",
+      "choiceMode": "shuffle",
+      "choicesPerQuestion": 3,
+      "mascotOutfit": "doctorCap",
+      "speechBubble": "How do we fix this?",
+      "correctBannerTitle": "Field fixed!",
+      "onCorrectVisual": "Scene crossfades from illustrationKey (problem) to illustrationFixedKey (fixed): lush green field, worried cloud becomes a sun.",
+      "collectionKind": "fieldTiles",
+      "collectionSize": 6,
+      "badge": {
+        "name": "Field Doctor",
+        "iconKey": "badge-field-doctor"
+      },
+      "result": {
+        "title": "Fields fixed!",
+        "subtitle": "You are a great field doctor",
+        "scoreLine": "You fixed {n} fields",
+        "mascotMood": "happy"
+      },
+      "nextGame": {
+        "slug": "weather-and-crops",
+        "buttonLabel": "Next Game: Weather and Crops",
+        "buttonIconKey": "cloud-sun-drop"
+      }
+    },
+    {
+      "position": 5,
+      "slug": "weather-and-crops",
+      "title": "Weather and Crops",
+      "questionsPerRound": 6,
+      "poolSize": 30,
+      "progressLabel": "n of 6",
+      "scoreRingText": "{score} / 6",
+      "choiceMode": "shuffle",
+      "choicesPerQuestion": 3,
+      "mascotOutfit": "raincoat",
+      "speechBubble": "What will happen to the field?",
+      "correctBannerTitle": "Nice call!",
+      "onCorrectVisual": "Scene plays resultAnimationKey (for example plants droop and water drops rise for Very hot days).",
+      "collectionKind": "weatherStickers",
+      "collectionSize": 6,
+      "badge": {
+        "name": "Weather Watcher",
+        "iconKey": "badge-weather-watcher"
+      },
+      "isFinale": true,
+      "result": {
+        "title": "Weather wise!",
+        "subtitle": "You can read the sky like a pro",
+        "scoreLine": "You predicted {n} weather effects",
+        "mascotMood": "happy"
+      },
+      "nextGame": null
+    }
+  ],
+  "fixedStrings": {
+    "wrongBannerTitle": "Almost! Try again",
+    "wrongBannerButton": "Try again",
+    "skippedBannerTitle": "Here's the answer",
+    "checkButton": "Check",
+    "continueButton": "Continue",
+    "skipButton": "Skip",
+    "hintForLockedBadge": "Score 4 or more to earn it",
+    "playAgainButton": "Play Again",
+    "backToGamesButton": "Back to Games",
+    "newQuestionsLine": "Next round has new questions",
+    "hubTitle": "Learn & Play",
+    "hubSubtitle": "Quick games that make the data easier",
+    "hubNewQuestionsLine": "New questions every time",
+    "exitModal": {
+      "text": "Leave this game? Your progress in this round will be lost.",
+      "keep": "Keep playing",
+      "leave": "Leave"
+    },
+    "outOfHeartsModal": {
+      "text": "Out of hearts. Let's try again!",
+      "tryAgain": "Try Again",
+      "back": "Back to Games"
+    },
+    "errorState": {
+      "text": "Something went wrong. Let's try again.",
+      "button": "Retry"
+    },
+    "offlineBanner": "You're offline",
+    "startOverLink": "Start over",
+    "finale": {
+      "doneTitle": "You finished Learn & Play!",
+      "doneSubtitle": "Now you are ready to explore your land",
+      "notDoneTitle": "Keep going!",
+      "backHomeButton": "Back to Home",
+      "exploreButton": "Start Exploring My Land",
+      "totalPointsChip": "+{totalPoints} total points",
+      "gamesDoneChip": "5 games done",
+      "masterBadgeChip": "Badge: Soil Expert"
+    },
+    "rule": "Frontend keeps these in strings/en.ts. Backend only sends content that is stored per question or per game (prompts, choices, explanations, labels)."
+  },
+  "colorRules": {
+    "wrong": "Soft orange only. Never red, anywhere.",
+    "correct": "Light green with a check icon",
+    "accessibility": "Never use color alone. Pair every state with an icon or text."
+  },
+  "sharedTypes": {
+    "Choice": {
+      "key": "string",
+      "label": "string",
+      "iconKey": "string"
+    },
+    "QuestionForPlay": {
+      "id": "string (questionId)",
+      "key": "string (for example g3-017)",
+      "position": "integer 1..questionsPerRound",
+      "prompt": "string",
+      "subtitle": "string | omitted",
+      "illustrationKey": "string | omitted",
+      "choices": "Choice[] (final order, exactly the order the frontend must show)",
+      "resolved": "boolean (only in the resume response)",
+      "wrongChoiceKeys": "string[] (only in the resume response, choices to show disabled)",
+      "firstTryCorrect": "boolean (only in the resume response; pending backend change, optional for the client)"
+    },
+    "CollectionItem": {
+      "key": "string",
+      "label": "string",
+      "iconKey": "string",
+      "earned": "boolean"
+    },
+    "Badge": {
+      "name": "string",
+      "iconKey": "string",
+      "earned": "boolean"
+    },
+    "AttemptState": {
+      "attemptId": "string",
+      "gameSlug": "gameSlug",
+      "status": "attemptStatus",
+      "hearts": "integer 0..3",
+      "streak": "integer >= 0",
+      "points": "integer >= 0",
+      "total": "integer (5 for match-the-word, 6 for the others)",
+      "questions": "QuestionForPlay[]"
+    },
+    "ApiError": {
+      "error": {
+        "code": "errorCode",
+        "message": "string",
+        "details": "object | omitted"
+      }
+    }
+  },
+  "endpoints": [
+    {
+      "id": "health",
+      "method": "GET",
+      "path": "/health",
+      "request": null,
+      "response200": {
+        "status": "ok"
+      }
+    },
+    {
+      "id": "listGames",
+      "method": "GET",
+      "path": "/games",
+      "usedBy": [
+        "Learn & Play hub",
+        "GamesPipeline"
+      ],
+      "request": null,
+      "response200": {
+        "games": [
+          {
+            "slug": "gameSlug",
+            "title": "string",
+            "position": "integer 1..5",
+            "questionsPerRound": "5 | 6",
+            "poolSize": "6 | 30",
+            "questionsSeen": "integer 0..poolSize (how many distinct questions this player has resolved)",
+            "mascotOutfit": "mascotOutfit",
+            "badge": {
+              "name": "string",
+              "iconKey": "string"
+            },
+            "best": {
+              "score": "integer | null",
+              "stars": "0..3 | null",
+              "points": "integer | null",
+              "badgeEarned": "boolean",
+              "completed": "boolean",
+              "timesPlayed": "integer"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "startAttempt",
+      "method": "POST",
+      "path": "/games/:slug/attempts",
+      "request": null,
+      "behavior": "Abandons any active attempt for this player and game, runs the picker, creates a new attempt.",
+      "response201": "AttemptState (status active, hearts 3, streak 0, points 0). Questions never contain the correct answer or the explanation.",
+      "errors": [
+        "404 NOT_FOUND (unknown slug)"
+      ]
+    },
+    {
+      "id": "getCurrentAttempt",
+      "method": "GET",
+      "path": "/games/:slug/attempts/current",
+      "behavior": "Resume after a page refresh. Same questions, same order, same choices as when started.",
+      "response200": "AttemptState plus per-question resolved, wrongChoiceKeys and firstTryCorrect (firstTryCorrect: PENDING backend change, see BACKEND_CHANGES.md; the client treats it as optional)",
+      "errors": [
+        "404 NOT_FOUND (no active attempt)"
+      ]
+    },
+    {
+      "id": "answerQuestion",
+      "method": "POST",
+      "path": "/attempts/:attemptId/answer",
+      "request": {
+        "questionId": "string",
+        "choiceKey": "string"
+      },
+      "response200": {
+        "correct": "boolean",
+        "correctChoiceKey": "string, ONLY when correct is true",
+        "explanation": "string, ONLY when correct is true",
+        "firstTry": "boolean, true when this correct answer earned points",
+        "pointsEarned": "0 | 10",
+        "hearts": "integer 0..3",
+        "streak": "integer",
+        "totalPoints": "integer",
+        "attemptStatus": "attemptStatus",
+        "allResolved": "boolean",
+        "collectionItem": "CollectionItem | omitted (only when firstTry is true and the game has a collection)",
+        "illustrationFixedKey": "string, Fix the Field only, ONLY when correct is true",
+        "resultAnimationKey": "string, Weather and Crops only, ONLY when correct is true"
+      },
+      "errors": [
+        "400 VALIDATION_ERROR (bad body)",
+        "400 QUESTION_NOT_IN_ATTEMPT",
+        "403 FORBIDDEN",
+        "404 NOT_FOUND",
+        "409 ATTEMPT_NOT_ACTIVE",
+        "409 QUESTION_ALREADY_RESOLVED"
+      ],
+      "notes": [
+        "A wrong answer returns 200 with correct = false. It is not an HTTP error.",
+        "A wrong answer never reveals the correct answer or the explanation.",
+        "choiceKey must belong to that question's choices in this attempt, otherwise 400 VALIDATION_ERROR."
+      ]
+    },
+    {
+      "id": "skipQuestion",
+      "method": "POST",
+      "path": "/attempts/:attemptId/skip",
+      "request": {
+        "questionId": "string"
+      },
+      "response200": {
+        "correctChoiceKey": "string",
+        "explanation": "string",
+        "hearts": "integer",
+        "streak": 0,
+        "totalPoints": "integer",
+        "attemptStatus": "attemptStatus",
+        "allResolved": "boolean"
+      },
+      "errors": [
+        "400 QUESTION_NOT_IN_ATTEMPT",
+        "403 FORBIDDEN",
+        "404 NOT_FOUND",
+        "409 ATTEMPT_NOT_ACTIVE",
+        "409 QUESTION_ALREADY_RESOLVED"
+      ]
+    },
+    {
+      "id": "completeAttempt",
+      "method": "POST",
+      "path": "/attempts/:attemptId/complete",
+      "request": null,
+      "allowedWhen": "Every question is resolved and status is active",
+      "response200": {
+        "attemptId": "string",
+        "gameSlug": "gameSlug",
+        "score": "integer",
+        "total": "5 | 6",
+        "stars": "0..3",
+        "points": "integer",
+        "bestStreak": "integer",
+        "badge": "Badge",
+        "collection": "CollectionItem[] (exactly collectionSize items, in question order). Empty array for satellite-or-ground.",
+        "recap": "array of { label, iconKey } | omitted (only for satellite-or-ground)",
+        "nextGame": "{ slug, title } | null (null only for weather-and-crops)",
+        "finale": {
+          "_note": "ONLY for weather-and-crops",
+          "allGamesDone": "boolean",
+          "totalPoints": "integer (sum of best points across the 5 games)",
+          "gamesDone": "integer 0..5",
+          "badges": [
+            {
+              "gameSlug": "gameSlug",
+              "name": "string",
+              "iconKey": "string",
+              "earned": "boolean"
+            }
+          ],
+          "masterBadge": {
+            "name": "Soil Expert",
+            "iconKey": "badge-soil-expert",
+            "earned": "boolean"
+          }
+        }
+      },
+      "errors": [
+        "403 FORBIDDEN",
+        "404 NOT_FOUND",
+        "409 ATTEMPT_NOT_FINISHED",
+        "409 ATTEMPT_NOT_ACTIVE"
+      ],
+      "notes": [
+        "Calling complete twice returns the same result (idempotent). The second call does not add points again.",
+        "A failed attempt cannot be completed. The frontend shows OutOfHeartsModal instead."
+      ]
+    },
+    {
+      "id": "abandonAttempt",
+      "method": "POST",
+      "path": "/attempts/:attemptId/abandon",
+      "request": null,
+      "response200": {
+        "status": "abandoned"
+      },
+      "errors": [
+        "403 FORBIDDEN",
+        "404 NOT_FOUND"
+      ]
+    },
+    {
+      "id": "getProgress",
+      "method": "GET",
+      "path": "/players/me/progress",
+      "response200": {
+        "totalPoints": "integer",
+        "gamesDone": "integer 0..5",
+        "games": [
+          {
+            "slug": "gameSlug",
+            "completed": "boolean",
+            "bestScore": "integer | null",
+            "bestStars": "0..3 | null",
+            "bestPoints": "integer | null",
+            "badgeEarned": "boolean",
+            "questionsSeen": "integer"
+          }
+        ],
+        "masterBadge": {
+          "name": "Soil Expert",
+          "iconKey": "badge-soil-expert",
+          "earned": "boolean"
+        }
+      }
+    },
+    {
+      "id": "resetProgress",
+      "method": "POST",
+      "path": "/players/me/reset",
+      "request": null,
+      "behavior": "Deletes this player's attempts, progress, and question history. Keeps the player id.",
+      "response200": {
+        "reset": true
+      }
+    }
+  ],
+  "leakPrevention": {
+    "neverSentBeforeResolved": [
+      "correctChoiceKey",
+      "explanation",
+      "collectionItem",
+      "illustrationFixedKey",
+      "resultAnimationKey"
+    ],
+    "mongooseRule": "correctChoiceKey has select: false on the Question schema",
+    "frontendRule": "No question text, choice, or answer is ever bundled in the client. Everything comes from the API."
+  },
+  "iconKeys": {
+    "convention": "kebab-case, prefix by area",
+    "prefixes": {
+      "ui-": "interface icons (close, heart, star, flame, leaf, check, lock, arrow-right, refresh, home, map, trophy, crown, speaker, game-controller, hamburger, satellite, sparkles, medal)",
+      "term-": "Game 1 term icons",
+      "choice-": "answer button icons",
+      "power-": "Game 3 powers and badges",
+      "crop-": "Game 3 crop heroes",
+      "fix-": "Game 4 fix icons",
+      "tile-": "Game 4 collection tiles",
+      "result-": "result icons and illustrations",
+      "sticker-": "Game 5 collection stickers",
+      "scene-": "FieldScene presets",
+      "badge-": "game badges and the master badge"
+    },
+    "game1TermIcons": {
+      "NDVI": "term-ndvi",
+      "Evapotranspiration": "term-evapotranspiration",
+      "Soil Moisture Anomaly": "term-soil-moisture-anomaly",
+      "Frost Risk": "term-frost-risk",
+      "Water Balance": "term-water-balance",
+      "Erosion": "term-erosion"
+    },
+    "sharedFile": "icon-keys.json, listing every valid key. Backend validatePool and the frontend dev check both read it.",
+    "fallback": "If the frontend has no asset for a key, it shows a generic game icon and logs a warning in dev. It never crashes."
+  },
+  "game1Pool": [
+    {
+      "key": "g1-001",
+      "term": "NDVI",
+      "iconKey": "term-ndvi",
+      "meaning": "How green and healthy plants are"
+    },
+    {
+      "key": "g1-002",
+      "term": "Evapotranspiration",
+      "iconKey": "term-evapotranspiration",
+      "meaning": "Water that leaves the soil and plants into the air"
+    },
+    {
+      "key": "g1-003",
+      "term": "Soil Moisture Anomaly",
+      "iconKey": "term-soil-moisture-anomaly",
+      "meaning": "When soil is wetter or drier than usual"
+    },
+    {
+      "key": "g1-004",
+      "term": "Frost Risk",
+      "iconKey": "term-frost-risk",
+      "meaning": "Chance of freezing cold that can harm plants"
+    },
+    {
+      "key": "g1-005",
+      "term": "Water Balance",
+      "iconKey": "term-water-balance",
+      "meaning": "Water coming in (rain) versus water going out (heat and plants)"
+    },
+    {
+      "key": "g1-006",
+      "term": "Erosion",
+      "iconKey": "term-erosion",
+      "meaning": "When wind or rain washes the soil away"
+    }
+  ],
+  "seedDataContract": {
+    "files": [
+      "games.json",
+      "g1.json",
+      "g2.json",
+      "g3.json",
+      "g4.json",
+      "g5.json"
+    ],
+    "questionDocument": {
+      "key": "string, unique",
+      "gameSlug": "gameSlug",
+      "prompt": "string",
+      "subtitle": "string, optional",
+      "illustrationKey": "string, optional",
+      "illustrationFixedKey": "string, Game 4 only",
+      "resultAnimationKey": "string, Game 5 only",
+      "choices": "Choice[] (3 for games 2 to 5, 1 for game 1 which stores only the correct meaning)",
+      "correctChoiceKey": "string",
+      "explanation": "string",
+      "group": "g2AnswerGroup (game 2) or g3PowerGroup (game 3), omitted otherwise",
+      "collectionItem": "{ key, label, iconKey } for games 1, 3, 4, 5. Omitted for game 2.",
+      "nasaTag": "optional, one of MODIS/Landsat, SMAP, GPM, NASA POWER",
+      "active": "boolean, default true"
+    },
+    "validatePoolMustPass": [
+      "Game 1 has exactly 6 active questions",
+      "Games 2 to 5 have exactly 30 active questions each",
+      "All keys are unique",
+      "Every correctChoiceKey exists in its question's choices",
+      "Games 2 to 5: exactly 3 choices, and no wrong choice label equals the correct label",
+      "Game 2 has 10 questions per answer group",
+      "Game 3 has all 8 powers, each with at least 3 crops",
+      "Every iconKey exists in icon-keys.json"
+    ]
+  },
+  "attemptDocumentFieldsBackendMustStore": [
+    "playerId",
+    "gameSlug",
+    "status",
+    "hearts",
+    "streak",
+    "bestStreak",
+    "points",
+    "questions[] with questionId, position, choices (final order), wrongChoiceKeys[], wrongCount, firstTryCorrect, skipped, resolved, resolvedAt",
+    "result { score, total, stars, badgeEarned }",
+    "startedAt",
+    "finishedAt",
+    "expiresAt"
+  ],
+  "routesFrontend": {
+    "/": "Home (placeholder until built)",
+    "/explore": "Explore Land (placeholder)",
+    "/farm": "My Farm (placeholder)",
+    "/lab": "Rotation Lab (placeholder)",
+    "/future": "Future Farm (placeholder)",
+    "/dashboard": "Dashboard (placeholder)",
+    "/learn": "Learn & Play hub",
+    "/learn/:slug": "Play screen. Unknown slug redirects to /learn.",
+    "/learn/:slug/result": "Score screen. Without a completed result in state, redirect to /learn/:slug."
+  },
+  "navBar": {
+    "items": [
+      "Home",
+      "Explore Land",
+      "My Farm",
+      "Rotation Lab",
+      "Future Farm",
+      "Dashboard",
+      "Learn & Play"
+    ],
+    "learnAndPlayIconKey": "ui-game-controller",
+    "pipeline": "5 circles, one per game, in position order"
+  },
+  "versioning": {
+    "rule": "Any change to a field name, an enum value, an endpoint, or a rule needs a bump of meta.version and a note below.",
+    "changelog": [
+      {
+        "version": "1.0.0",
+        "note": "Initial contract. 5 games, Game 1 pool of 6 (5 per round), Games 2 to 5 pools of 30 (6 per round)."
+      },
+      {
+        "version": "1.1.0",
+        "note": "Frontend is Next.js. Documented illustrationFixedKey and resultAnimationKey in the answer response (already sent by the backend). Proposed firstTryCorrect on the resume response (pending)."
+      }
+    ]
+  }
+}

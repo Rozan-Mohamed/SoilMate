@@ -1,0 +1,111 @@
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------ */
+/* Design tokens. Sampled from the SoilMate Learn & Play screens.      */
+/* Every page of the site should use these, never raw hex values.      */
+/* ------------------------------------------------------------------ */
+@theme {
+  --color-mint: #ecfcf0; /* page background */
+  --color-mint-2: #e4f4ec; /* soft panels */
+  --color-mint-3: #d4ece0; /* borders, dividers */
+  --color-deep: #184030; /* primary buttons, titles, active nav */
+  --color-primary: #006c4a; /* links, active circles, accents */
+  --color-bright: #90f4c0; /* progress, correct highlights */
+  --color-leaf: #48b080; /* secondary green */
+  --color-ink: #12372a; /* body text (never pure black) */
+  --color-ink-soft: #4d6b5d; /* subtitles: 4.7:1 or better on every surface we use */
+  --color-peach: #f5a34a; /* wrong / missed (soft orange, never red) */
+  --color-peach-soft: #ffe7d2;
+  --color-peach-ink: #7a3e08;
+  --color-gold: #f5b50a; /* stars */
+  --color-gold-soft: #fff4cc;
+  --color-heart: #f0795e; /* hearts: warm coral, never pure red */
+  --color-card: #ffffff;
+
+  --font-sans: 'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 24px;
+  --radius-btn: 16px;
+
+  --shadow-card: 0 10px 28px -10px rgb(24 64 48 / 0.22), 0 2px 6px rgb(24 64 48 / 0.06);
+  --shadow-press: 0 4px 0 0 rgb(24 64 48 / 0.28);
+  --shadow-press-soft: 0 3px 0 0 rgb(24 64 48 / 0.12);
+}
+
+html {
+  background: var(--color-mint);
+  scroll-padding-top: 5rem;
+}
+
+body {
+  min-height: 100dvh;
+  background: transparent;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Visible keyboard focus everywhere. */
+:focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+/* ------------------------------------------------------------------ */
+/* Calm background motion (clouds and leaves). Off for reduced motion. */
+/* ------------------------------------------------------------------ */
+@keyframes drift {
+  from {
+    transform: translateX(-20vw);
+  }
+  to {
+    transform: translateX(120vw);
+  }
+}
+@keyframes sway {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-6deg);
+  }
+  50% {
+    transform: translateY(-14px) rotate(8deg);
+  }
+}
+
+.bg-cloud {
+  animation: drift linear infinite;
+  will-change: transform;
+}
+.bg-leaf {
+  animation: sway ease-in-out infinite;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .bg-cloud,
+  .bg-leaf {
+    animation: none !important;
+  }
+}
