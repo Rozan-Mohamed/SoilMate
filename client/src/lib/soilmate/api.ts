@@ -1,5 +1,5 @@
 import { en } from '@/strings/en';
-import { apiUrl } from './config';
+import { apiUrl, resolveApiAssetUrls } from './config';
 import { ApiError } from './errors';
 import { getOrCreateGuestId, resetGuestId } from './guest';
 import { clearToken, getToken } from './token';
@@ -165,7 +165,7 @@ async function request<T>(
   if (!text) return undefined as T;
 
   try {
-    return JSON.parse(text) as T;
+    return resolveApiAssetUrls(JSON.parse(text) as T);
   } catch {
     throw internalError(response.status);
   }

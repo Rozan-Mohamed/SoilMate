@@ -1,9 +1,14 @@
 import type { ApiErrorBody, ErrorCode } from './types';
 
-const BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api').replace(
-  /\/$/,
-  '',
-);
+const rawApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+const rawApiBase = process.env.NEXT_PUBLIC_API_BASE?.trim().replace(/\/+$/, '');
+const BASE_URL = (
+  rawApiUrl && rawApiUrl.length > 0
+    ? rawApiUrl
+    : rawApiBase
+      ? `${rawApiBase}/api`
+      : 'http://localhost:4000/api'
+).replace(/\/$/, '');
 export const PLAYER_ID_KEY = 'soilmate.playerId';
 
 export class ApiError extends Error {
