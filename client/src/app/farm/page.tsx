@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
-import { PlaceholderPage } from '@/components/ui/PlaceholderPage';
+import { FarmView } from '@/components/farm/FarmView';
 import { en } from '@/strings/en';
 
 export const metadata: Metadata = { title: en.nav.farm };
 
 export default function Page() {
-  return <PlaceholderPage title={en.nav.farm} />;
+  return <FarmView />;
 }

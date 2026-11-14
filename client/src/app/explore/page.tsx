@@ -1,9 +1,12 @@
 import type { Metadata } from 'next';
-import { PlaceholderPage } from '@/components/ui/PlaceholderPage';
+import { ExploreView } from '@/components/explore/ExploreView';
 import { en } from '@/strings/en';
 
-export const metadata: Metadata = { title: en.nav.explore };
+export const metadata: Metadata = {
+  title: en.nav.explore,
+  description: en.explore.description,
+};
 
-export default function Page() {
-  return <PlaceholderPage title={en.nav.explore} />;
+export default function ExplorePage() {
+  return <ExploreView />;
 }

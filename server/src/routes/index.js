@@ -1,13 +1,33 @@
-import { Router } from 'express';
-import gamesRoutes from './gamesRoutes.js';
-import attemptsRoutes from './attemptsRoutes.js';
-import playersRoutes from './playersRoutes.js';
+import { Router } from "express";
+import gamesRoutes from "./gamesRoutes.js";
+import attemptsRoutes from "./attemptsRoutes.js";
+import playersRoutes from "./playersRoutes.js";
+import authRoutes from "./authRoutes.js";
+import meRoutes from "./meRoutes.js";
+import metaRoutes from "./metaRoutes.js";
+import cropsRoutes from "./cropsRoutes.js";
+import exploreRoutes from "./exploreRoutes.js";
+import farmRoutes from "./farmRoutes.js";
+import dashboardRoutes from "./dashboardRoutes.js";
+import plansRoutes from "./plansRoutes.js";
+import rotationLabRoutes from "./rotationLabRoutes.js";
 
 const router = Router();
 
-router.get('/health', (req, res) => res.json({ status: 'ok' }));
-router.use('/games', gamesRoutes);
-router.use('/attempts', attemptsRoutes);
-router.use('/players', playersRoutes);
+router.get("/health", (req, res) => res.json({ status: "ok" }));
+router.use("/games", gamesRoutes);
+router.use("/attempts", attemptsRoutes);
+router.use("/players", playersRoutes);
+router.use("/auth", authRoutes);
+router.use("/me", meRoutes);
+router.use("/meta", metaRoutes);
+router.use("/crops", cropsRoutes);
+router.use("/farm", farmRoutes);
+router.use("/rotation-lab", rotationLabRoutes);
+router.use("/plans", plansRoutes);
+
+router.use("/", dashboardRoutes); 
+
+router.use("/", exploreRoutes); 
 
 export default router;

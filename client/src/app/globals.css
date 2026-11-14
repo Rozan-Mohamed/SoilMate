@@ -66,6 +66,52 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
+/* Leaflet (Explore Land). The map keeps the SoilMate look: mint       */
+/* background, white rounded controls and a readable attribution.      */
+/* ------------------------------------------------------------------ */
+.soilmate-map {
+  background: var(--color-mint-2);
+  font-family: var(--font-sans);
+  /*
+    Leaflet paints its panes and controls with z-index 200–1000. Without a
+    stacking context of their own they escape the map and cover the sticky
+    navbar and the SoilMate UI around it. `isolation: isolate` keeps them
+    inside the map.
+  */
+  isolation: isolate;
+}
+
+/* The default div-icon has a grey box; our labels draw their own card. */
+.leaflet-div-icon {
+  background: transparent;
+  border: none;
+}
+
+.soilmate-map .leaflet-bar a {
+  background: #fff;
+  color: var(--color-deep);
+  border-bottom: 1px solid var(--color-mint-3);
+  font-weight: 800;
+}
+
+.soilmate-map .leaflet-bar a:hover {
+  background: var(--color-mint-2);
+  color: var(--color-deep);
+}
+
+.soilmate-map .leaflet-control-attribution {
+  background: rgb(255 255 255 / 0.85);
+  color: var(--color-ink-soft);
+  font-size: 10px;
+  border-radius: 8px 0 0 0;
+  padding: 2px 6px;
+}
+
+.soilmate-map .leaflet-control-attribution a {
+  color: var(--color-primary);
+}
+
+/* ------------------------------------------------------------------ */
 /* Calm background motion (clouds and leaves). Off for reduced motion. */
 /* ------------------------------------------------------------------ */
 @keyframes drift {

@@ -2,9 +2,12 @@ import type { Metadata, Viewport } from 'next';
 import '@fontsource-variable/plus-jakarta-sans';
 import './globals.css';
 import { Providers } from '@/providers/Providers';
+import { AuthProvider } from '@/providers/AuthProvider';
+import { JourneyProvider } from '@/providers/JourneyProvider';
 import { PageBackground } from '@/components/layout/PageBackground';
 import { NavBar } from '@/components/layout/NavBar';
 import { RouteFocus } from '@/components/layout/RouteFocus';
+import { AuthNotice } from '@/components/auth/AuthNotice';
 
 export const metadata: Metadata = {
   title: { default: 'SoilMate', template: '%s | SoilMate' },
@@ -23,12 +26,17 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
     <html lang="en">
       <body>
         <Providers>
-          <PageBackground />
-          <NavBar />
-          <main id="main" tabIndex={-1} className="outline-none">
-            {children}
-          </main>
-          <RouteFocus />
+          <AuthProvider>
+            <JourneyProvider>
+              <PageBackground />
+              <NavBar />
+              <AuthNotice />
+              <main id="main" tabIndex={-1} className="outline-none">
+                {children}
+              </main>
+              <RouteFocus />
+            </JourneyProvider>
+          </AuthProvider>
         </Providers>
       </body>
     </html>
