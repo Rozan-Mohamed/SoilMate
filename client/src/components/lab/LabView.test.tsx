@@ -178,4 +178,107 @@ describe('LabView (updated backend)', () => {
     expect(text()).not.toContain('Rotation options for your farm');
     expect(container).toBeTruthy();
   });
+
+  it('changing selected winter or summer crop triggers a plans request using the latest selection', async () => {
+    api.fetchFarm.mockResolvedValue(farmOf());
+    api.fetchRotationLabOptions.mockResolvedValue(options);
+    api.lookupRotationLabPlans.mockImplementation(async (params: { center: string; winter?: string; summer?: string }) => ({
+      key: `${params.center}|${params.winter ?? 'fallow'}|${params.summer ?? 'fallow'}`,
+      input: { center: params.center, winter: params.winter ?? 'fallow', summer: params.summer ?? 'fallow' },
+      singleSeason: !params.winter || !params.summer,
+      emptySeason: !params.winter ? 'winter' : !params.summer ? 'summer' : null,
+      version: 'v3-rotation-1.1',
+      result: {
+        center: params.center,
+        current_input: { winter: params.winter ?? 'fallow', summer: params.summer ?? 'fallow' },
+        plans: {
+          current: { ...plan('current', `${params.winter ?? 'Fallow'} then ${params.summer ?? 'Fallow'}`), rotation: { winter: params.winter ?? 'fallow', summer: params.summer ?? 'fallow', label: `${params.winter ?? 'Fallow'} then ${params.summer ?? 'Fallow'}` } },
+          water_saving: { ...plan('water_saving', `WS for ${params.winter ?? 'fallow'}/${params.summer ?? 'fallow'}`), rotation: { winter: params.winter ?? 'fallow', summer: params.summer ?? 'fallow', label: `WS for ${params.winter ?? 'fallow'}/${params.summer ?? 'fallow'}` } },
+          soil_health: { ...plan('soil_health', `SH for ${params.winter ?? 'fallow'}/${params.summer ?? 'fallow'}`), rotation: { winter: params.winter ?? 'fallow', summer: params.summer ?? 'fallow', label: `SH for ${params.winter ?? 'fallow'}/${params.summer ?? 'fallow'}` } },
+        },
+      },
+    }));
+
+    await renderView();
+    await flush();
+
+    const winterWheat = Array.from(container.querySelectorAll('[role="option"]')).find((el) => el.textContent?.includes('Wheat')) as HTMLButtonElement | undefined;
+    expect(winterWheat).toBeTruthy();
+    await act(async () => { winterWheat!.click(); });
+    await flush();
+    expect(api.lookupRotationLabPlans).toHaveBeenCalledWith({ center: 'desouk', winter: 'wheat' });
+
+    const summerCotton = Array.from(container.querySelectorAll('[role="option"]')).find((el) => el.textContent?.includes('Cotton')) as HTMLButtonElement | undefined;
+    expect(summerCotton).toBeTruthy();
+    await act(async () => { summerCotton!.click(); });
+    await flush();
+    expect(api.lookupRotationLabPlans).toHaveBeenLastCalledWith({ center: 'desouk', winter: 'wheat', summer: 'cotton' });
+
+    // rendered alternatives come from latest response
+    expect(text()).toContain('WS for wheat/cotton');
+    expect(text()).toContain('SH for wheat/cotton');
+  });
+
+  it('clears old plans immediately on selection change and does not show previous alternatives for the new selection', async () => {
+    let resolveSecond!: (v: RotationLabPlansResponse) => void;
+    const first: RotationLabPlansResponse = {
+      ...plansResponse,
+      key: 'desouk|wheat|fallow',
+      input: { center: 'desouk', winter: 'wheat', summer: 'fallow' },
+      singleSeason: true,
+      emptySeason: 'summer',
+      result: {
+        center: 'desouk',
+        current_input: { winter: 'wheat', summer: 'fallow' },
+        plans: {
+          current: { ...plan('current', 'Wheat only'), rotation: { winter: 'wheat', summer: 'fallow', label: 'Wheat only' } },
+          water_saving: { ...plan('water_saving', 'WS FIRST'), rotation: { winter: 'wheat', summer: 'fallow', label: 'WS FIRST' } },
+          soil_health: { ...plan('soil_health', 'SH FIRST'), rotation: { winter: 'wheat', summer: 'fallow', label: 'SH FIRST' } },
+        },
+      },
+    };
+    const second: RotationLabPlansResponse = {
+      ...plansResponse,
+      key: 'desouk|wheat|cotton',
+      input: { center: 'desouk', winter: 'wheat', summer: 'cotton' },
+      result: {
+        center: 'desouk',
+        current_input: { winter: 'wheat', summer: 'cotton' },
+        plans: {
+          current: { ...plan('current', 'Wheat then Cotton'), rotation: { winter: 'wheat', summer: 'cotton', label: 'Wheat then Cotton' } },
+          water_saving: { ...plan('water_saving', 'WS SECOND'), rotation: { winter: 'wheat', summer: 'cotton', label: 'WS SECOND' } },
+          soil_health: { ...plan('soil_health', 'SH SECOND'), rotation: { winter: 'wheat', summer: 'cotton', label: 'SH SECOND' } },
+        },
+      },
+    };
+
+    api.fetchFarm.mockResolvedValue(farmOf());
+    api.fetchRotationLabOptions.mockResolvedValue(options);
+    api.lookupRotationLabPlans
+      .mockResolvedValueOnce(first)
+      .mockImplementationOnce(() => new Promise<RotationLabPlansResponse>((resolve) => { resolveSecond = resolve; }));
+
+    await renderView();
+    await flush();
+
+    const winterWheat = Array.from(container.querySelectorAll('[role="option"]')).find((el) => el.textContent?.includes('Wheat')) as HTMLButtonElement | undefined;
+    await act(async () => { winterWheat!.click(); });
+    await flush();
+    expect(text()).toContain('WS FIRST');
+    expect(text()).toContain('SH FIRST');
+
+    const summerCotton = Array.from(container.querySelectorAll('[role="option"]')).find((el) => el.textContent?.includes('Cotton')) as HTMLButtonElement | undefined;
+    await act(async () => { summerCotton!.click(); });
+    await flush();
+
+    // old plans cleared while new request is pending
+    expect(text()).not.toContain('Rotation options for your farm');
+    expect(text()).not.toContain('WS FIRST');
+    expect(text()).not.toContain('SH FIRST');
+
+    await act(async () => { resolveSecond(second); });
+    await flush();
+    expect(text()).toContain('WS SECOND');
+    expect(text()).toContain('SH SECOND');
+  });
 });

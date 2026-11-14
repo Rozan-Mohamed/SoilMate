@@ -201,6 +201,43 @@ export function LabView() {
   const centerId = farm?.centerId ?? null;
   const canSubmit = canSubmitRotation(selection) && !!centerId;
 
+  // Fetch plans for the exact current selection whenever it changes to a valid,
+  // comparable rotation. This ensures alternatives are input-dependent and never
+  // displayed for a previous selection.
+  useEffect(() => {
+    if (status !== 'ready' || !centerId) return;
+    if (!canSubmitRotation(selection)) return;
+
+    const requestKey = `${centerId}|${selection.winter ?? ''}|${selection.summer ?? ''}`;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const p = await lookupRotationLabPlans({
+          center: centerId,
+          winter: selection.winter ?? undefined,
+          summer: selection.summer ?? undefined,
+        });
+        if (cancelled) return;
+        // Ignore stale responses that do not match the selection this request was made for.
+        if (`${centerId}|${selection.winter ?? ''}|${selection.summer ?? ''}` !== requestKey) return;
+        if (p?.result?.plans?.current && p?.result?.plans?.water_saving && p?.result?.plans?.soil_health) {
+          setPlans(p);
+        } else {
+          setPlans(null);
+        }
+      } catch {
+        if (!cancelled) setPlans(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [status, centerId, selection]);
+
+  const displayPlans =
+    status === 'ready' && centerId && canSubmitRotation(selection) ? plans : null;
+
   const onSubmit = useCallback(async () => {
     if (!centerId) {
       setError('Pick your area in Explore Land before saving a rotation.');
@@ -343,12 +380,12 @@ export function LabView() {
 
       {error ? <div className="mt-4"><Banner tone="error">{error}</Banner></div> : null}
 
-      {plans?.result?.plans?.current && plans?.result?.plans?.water_saving && plans?.result?.plans?.soil_health ? (
+      {displayPlans?.result?.plans?.current && displayPlans?.result?.plans?.water_saving && displayPlans?.result?.plans?.soil_health ? (
         <div className="mt-6 space-y-4">
           <h2 className="text-xl font-extrabold text-deep">Rotation options for your farm</h2>
           <div className="grid gap-4 lg:grid-cols-1">
             {PLAN_ORDER.map((k) => {
-              const plan = plans.result.plans[k];
+              const plan = displayPlans.result.plans[k];
               return plan ? <PlanCard key={k} plan={plan} title={PLAN_TITLES[k] || k} /> : null;
             })}
           </div>
