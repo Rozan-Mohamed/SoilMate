@@ -3,7 +3,6 @@
 .gitignore
 Dockerfile
 .dockerignore
-client
 docs
 
 # Never include secrets or local artifacts
